@@ -108,7 +108,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     */
     GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF0_SPI1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -207,6 +207,9 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
   /* USER CODE END TIM6_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_TIM6_CLK_ENABLE();
+    /* TIM6 interrupt Init */
+    HAL_NVIC_SetPriority(TIM6_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(TIM6_IRQn);
   /* USER CODE BEGIN TIM6_MspInit 1 */
 
   /* USER CODE END TIM6_MspInit 1 */
@@ -229,6 +232,9 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* htim_base)
   /* USER CODE END TIM6_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_TIM6_CLK_DISABLE();
+
+    /* TIM6 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(TIM6_IRQn);
   /* USER CODE BEGIN TIM6_MspDeInit 1 */
 
   /* USER CODE END TIM6_MspDeInit 1 */

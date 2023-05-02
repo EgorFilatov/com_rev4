@@ -18,10 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <vector>
+#include "SpiPort.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,18 +55,12 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 uint8_t uartRx0[53] { 0 };
 uint8_t uartRx1[53] { 0 };
-uint8_t *uartRx[2] { &uartRx0[0], &uartRx1[0] };
+uint8_t *uartRx[2] { uartRx0, uartRx1 };
 
 uint8_t uartRxSaved[53] { 0 };
 uint8_t rxArrNum { 0 };
-
 uint8_t rxStarted { 0 };
-
 uint8_t uartRxState[2] { 0 };
-
-uint8_t uartRxFinished { 0 };
-
-uint16_t uartRxSumm { 0 };
 
 uint8_t RxMs { 0 };
 uint16_t TxMs { 0 };
@@ -100,22 +93,22 @@ uint8_t uartTx[55] = {0x55,0xAA,  // Контрольные байты (0x55,0xAA)
 					  0,0,  // Порт 12
 					  0,0,
 					  0,0}; // Контрольная сумма
-uint8_t uartTxSaved[55] = { 0 };
+uint8_t uartTxSaved[55] { 0 };
 
 
 
-uint8_t uartTxState = 0;
+uint8_t uartTxState { 0 };
 
-uint8_t uartRxFlag = 0;
-uint8_t uartTxFlag = 0;
+uint8_t uartRxFlag { 0 };
+uint8_t uartTxFlag { 0 };
 
-uint16_t uartTxSumm = 0;
+uint16_t uartTxSumm { 0 };
 
-//SpiPort spiPort[12];
-uint8_t spiState = 0;
-uint8_t port = 0;
+SpiPort spiPort[12];
+uint8_t spiState { 0 };
+uint8_t port { 0 };
 
-uint8_t timFlag = 0;
+uint8_t timFlag { 0 };
 
 
 /* USER CODE END PV */
@@ -138,35 +131,41 @@ void HAL_UART_RxCpltCallback (UART_HandleTypeDef *huart)
 	uartInterrupt(rxArrNum);
 }
 
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	++RxMs;
-	++TxMs;
-}
-
-
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
-	HAL_UART_AbortReceive_IT(&huart2);
+	HAL_UART_AbortReceive_IT(huart);
 	uint32_t dr = USART2->RDR;
-	uint32_t er = HAL_UART_GetError(&huart2);
+	uint32_t er = HAL_UART_GetError(huart);
 	if (er & HAL_UART_ERROR_PE) {
-		__HAL_UART_CLEAR_PEFLAG(&huart2);
+		__HAL_UART_CLEAR_PEFLAG(huart);
 	}
 	if (er & HAL_UART_ERROR_NE) {
-		__HAL_UART_CLEAR_NEFLAG(&huart2);
+		__HAL_UART_CLEAR_NEFLAG(huart);
 	}
 	if (er & HAL_UART_ERROR_FE) {
-		__HAL_UART_CLEAR_FEFLAG(&huart2);
+		__HAL_UART_CLEAR_FEFLAG(huart);
 	}
 	if (er & HAL_UART_ERROR_ORE) {
 		__HAL_UART_CLEAR_OREFLAG(huart);
 	}
 	if (er & HAL_UART_ERROR_DMA) {
-		__HAL_UART_CLEAR_NEFLAG(&huart2);
+		__HAL_UART_CLEAR_NEFLAG(huart);
 	}
 	//huart->ErrorCode = HAL_UART_ERROR_NONE;
 }
 
+void HAL_UART_TxCpltCallback (UART_HandleTypeDef *huart)
+{
+	uartTxState = 0;
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
+	spiState = 2;
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	++RxMs;
+	++TxMs;
+}
 
 void uartInterrupt(uint8_t num) {
 		uartRxState[num] = 2;
@@ -179,7 +178,6 @@ void uartInterrupt(uint8_t num) {
 		}
 }
 
-
 void uartProcessing(uint8_t num) {
 	switch (uartRxState[num]) {
 	case 1:
@@ -189,39 +187,35 @@ void uartProcessing(uint8_t num) {
 				rxStarted = 1;
 				RxMs = 0;
 				break;
-			default:
+			case 1:
 				if (RxMs > UART_RX_PERIOD_MS / 5) {
 					rxStarted = 0;
 					HAL_UART_AbortReceive_IT(&huart2);
 					uartRxState[num] = 1;
-					HAL_UART_Receive_DMA(&huart2, uartRx[num], 53);
+					HAL_UART_Receive_IT(&huart2, uartRx[num], 53);
 				}
+				break;
 			}
 		}
 		break;
 	case 2:
+		uartRxState[num] = 0;
 		rxStarted = 0;
-		if (uartRx[num][0] == 0x55 && uartRx[num][1] == 0xAA && uartRx[num][2] == 48) {
-			uartRxSumm = 0;
+		if (uartRx[num][0] == 0x55 && uartRx[num][1] == 0xAA && uartRx[num][2] == 0x30) {
+			uint16_t uartRxSumm = 0;
 			for (uint8_t i = 0; i <= 50; i++) {
 				uartRxSumm += uartRx[num][i];
 			}
-			if ((uint8_t) uartRxSumm == uartRx[num][51] && (uint8_t) (uartRxSumm >> 8) == uartRx[num][52] && uartRxFinished == 0) {
-				uartRxFinished = 1;
+			if ((uint8_t) uartRxSumm == uartRx[num][51] && (uint8_t) (uartRxSumm >> 8) == uartRx[num][52] && spiState != 1) {
 				for (uint8_t i = 0; i <= 52; i++) {
 					uartRxSaved[i] = uartRx[num][i];
 				}
 			}
 		}
-		uartRxState[num] = 0;
-		num ? rxArrNum = 0 : rxArrNum = 1;
+		rxArrNum ? rxArrNum = 0 : rxArrNum = 1;
 		break;
 	}
 }
-
-
-
-
 /* USER CODE END 0 */
 
 /**
@@ -231,7 +225,18 @@ void uartProcessing(uint8_t num) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	spiPort[0].setCS(GPIOC, 9);
+	spiPort[1].setCS(GPIOC, 8);
+	spiPort[2].setCS(GPIOC, 7);
+	spiPort[3].setCS(GPIOC, 6);
+	spiPort[4].setCS(GPIOB, 15);
+	spiPort[5].setCS(GPIOB, 14);
+	spiPort[6].setCS(GPIOB, 13);
+	spiPort[7].setCS(GPIOB, 12);
+	spiPort[8].setCS(GPIOB, 2);
+	spiPort[9].setCS(GPIOB, 1);
+	spiPort[10].setCS(GPIOB, 0);
+	spiPort[11].setCS(GPIOC, 5);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -259,66 +264,50 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim6); //Vklychenie taimera 6
   uartRxState[0] = 1;
-  HAL_UART_Receive_IT(&huart2, uartRx0, 53); // Priem po UART
+  HAL_UART_Receive_IT(&huart2, uartRx[0], 53); // Priem po UART
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* Обработка приема по UART */
 	  uartProcessing(0);
 	  uartProcessing(1);
 
-
-
-
-
-
-	  if (spiState == 0) {
-			if (port == 0) {
-				spiState = 1;
-				spiPort[12].unSelect();
-
-				spiPort[port].setTx(&uartRxSaved[4 * port + 3],
-						&uartRxSaved[4 * port + 4], &uartRxSaved[4 * port + 5],
-						&uartRxSaved[4 * port + 6]);
-				spiPort[port].select();
-				HAL_SPI_TransmitReceive_IT(&hspi1, spiPort[port].getTx(),
-						spiPort[port].getRx(), 6);
-			}
-
-		} else if (spiState == 2) {
-			if (port == 0) {
-				spiState = 0;
-				if (spiPort[port].rxCheck()) {
-					++port;
-					if (spiPort[port].prevCheck()) {
-						uartTxFlag = 3;
-
-						uartTx[4 * port + 5] = *(spiPort[port].getRx());
-						uartTx[4 * port + 6] = *(spiPort[port].getRx() + 1);
-						uartTx[4 * port + 7] = *(spiPort[port].getRx() + 2);
-						uartTx[4 * port + 8] = *(spiPort[port].getRx() + 3);
-						*(spiPort[0].getRx() + 4) ?
-								uartTx[3] &= ~(1 << port) :
-								uartTx[3] |= (1 << port);
-					}
+	  /* Обработка приемо-передачи по SPI */
+	  switch (spiState) {
+		case 0:
+			spiState = 1;
+			port == 0 ? spiPort[11].unSelect() : spiPort[port - 1].unSelect();
+			spiPort[port].setTx(&uartRxSaved[4 * port + 3], &uartRxSaved[4 * port + 4], &uartRxSaved[4 * port + 5], &uartRxSaved[4 * port + 6]);
+			spiPort[port].select();
+			HAL_SPI_TransmitReceive_IT(&hspi1, spiPort[port].getTx(), spiPort[port].getRx(), 6);
+			break;
+		case 2:
+			spiState = 0;
+			if (spiPort[port].rxSummCheck()) {
+				uartTx[4 * port + 5] = *(spiPort[port].getRx());
+				uartTx[4 * port + 6] = *(spiPort[port].getRx() + 1);
+				uartTx[4 * port + 7] = *(spiPort[port].getRx() + 2);
+				uartTx[4 * port + 8] = *(spiPort[port].getRx() + 3);
+				if (port <= 7) {
+					*(spiPort[port].getRx() + 4) ? uartTx[3] &= ~(1 << port) : uartTx[3] |= (1 << port);
+				} else {
+					*(spiPort[port].getRx() + 4) ? uartTx[4] &= ~(1 << (port - 8)) : uartTx[4] |= (1 << (port - 8));
 				}
+				port == 11 ? port = 0 : ++port;
+				spiPort[port].changes() ? uartTxFlag = 3 : 0;
 			}
+			break;
 		}
 
-
-
-
-
-
-
-
-	  if (TxMs > 300) {
+	  	/* Обработка передачи по UART */
+		if (TxMs > 300) {
 			uartTxFlag = 1;
 		}
 
-		if (uartTxFlag != 0 && uartTxState == 0 && TxMs > 1) {
+		if (uartTxFlag != 0 && uartTxState == 0) {
 			uartTxState = 1;
 			--uartTxFlag;
 
@@ -333,7 +322,7 @@ int main(void)
 			uartTxSaved[53] = (uint8_t) uartTxSumm;
 			uartTxSaved[54] = (uint8_t) (uartTxSumm >> 8);
 
-			uartTxMs = 0;
+			TxMs = 0;
 			HAL_UART_Transmit_IT(&huart2, (uint8_t*) uartTxSaved, 55);
 		}
     /* USER CODE END WHILE */
@@ -534,7 +523,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8
                           |GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
@@ -543,7 +532,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_12
                           |GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
